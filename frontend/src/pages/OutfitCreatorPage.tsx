@@ -17,6 +17,7 @@ interface OutfitData {
 }
 
 const CATEGORY_ORDER = ['Oberteile', 'Hosen', 'Röcke', 'Kleider', 'Schuhe', 'Accessoires'];
+const BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
 function OutfitCreatorPage() {
   const [wardrobeItems, setWardrobeItems] = useState<ClothingItem[]>([]);
@@ -26,6 +27,7 @@ function OutfitCreatorPage() {
   const [openCategories, setOpenCategories] = useState<Set<string>>(new Set());
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
+  const [dragOver, setDragOver] = useState(false);
   const dragItemRef = useRef<HTMLDivElement | null>(null);
 
   const loadWardrobe = useCallback(async () => {
@@ -86,8 +88,19 @@ function OutfitCreatorPage() {
     e.dataTransfer.dropEffect = 'copy';
   }
 
+  function handleDragEnter(e: React.DragEvent) {
+    e.preventDefault();
+    setDragOver(true);
+  }
+
+  function handleDragLeave(e: React.DragEvent) {
+    e.preventDefault();
+    setDragOver(false);
+  }
+
   function handleDrop(e: React.DragEvent) {
     e.preventDefault();
+    setDragOver(false);
     const itemIdStr = e.dataTransfer.getData('application/item-id');
     if (!itemIdStr) return;
     const itemId = parseInt(itemIdStr, 10);
@@ -139,16 +152,7 @@ function OutfitCreatorPage() {
 
   async function handleDelete(outfitId: number) {
     try {
-      const baseUrl = import.meta.env.VITE_API_URL || 'http://localhost:8000';
-      const response = await fetch(`${baseUrl}/api/outfits/${outfitId}`, {
-        method: 'DELETE',
-        credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
-      });
-      if (!response.ok) {
-        const err = await response.json().catch(() => ({ detail: 'Fehler beim Löschen.' }));
-        throw new Error(err.detail);
-      }
+      await apiClient.del(`/api/outfits/${outfitId}`);
       setOutfits((prev) => prev.filter((o) => o.id !== outfitId));
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Fehler beim Löschen.');
@@ -156,6 +160,7 @@ function OutfitCreatorPage() {
   }
 
   const droppedItems = getDroppedItems();
+  const imageUrl = (url: string) => `${BASE_URL}${url}`;
 
   return (
     <div className="outfit-creator-page">
@@ -186,7 +191,7 @@ function OutfitCreatorPage() {
                       draggable
                       onDragStart={(e) => handleDragStart(e, item)}
                     >
-                      <img src={item.image_url} alt={item.name} />
+                      <img src={imageUrl(item.image_url)} alt={item.name} />
                       <span className="drag-item-label">{item.name}</span>
                     </div>
                   ))}
@@ -199,8 +204,10 @@ function OutfitCreatorPage() {
         <div className="preview-panel">
           <h2>Outfit-Vorschau</h2>
           <div
-            className="drop-zone"
+            className={`drop-zone ${dragOver ? 'drag-over' : ''}`}
             onDragOver={handleDragOver}
+            onDragEnter={handleDragEnter}
+            onDragLeave={handleDragLeave}
             onDrop={handleDrop}
           >
             {droppedItems.length === 0 && (
@@ -208,7 +215,7 @@ function OutfitCreatorPage() {
             )}
             {droppedItems.map((item) => (
               <div key={item.id} className="preview-item">
-                <img src={item.image_url} alt={item.name} />
+                <img src={imageUrl(item.image_url)} alt={item.name} />
                 <span className="preview-item-label">{item.name}</span>
                 <button
                   type="button"
@@ -253,7 +260,7 @@ function OutfitCreatorPage() {
             <div key={outfit.id} className="outfit-card">
               <div className="outfit-card-preview">
                 {outfit.items.slice(0, 4).map((item) => (
-                  <img key={item.id} src={item.image_url} alt={item.name} />
+                  <img key={item.id} src={imageUrl(item.image_url)} alt={item.name} />
                 ))}
               </div>
               <span className="outfit-card-name">{outfit.name}</span>
@@ -274,42 +281,55 @@ function OutfitCreatorPage() {
         .outfit-creator-page {
           max-width: 1200px;
           margin: 0 auto;
-          padding: 24px;
+          padding: 32px 24px;
         }
         .outfit-creator-page h1 {
-          font-size: 2rem;
-          margin-bottom: 24px;
-          color: #2d1b4e;
+          font-family: 'Playfair Display', 'Times New Roman', Georgia, serif;
+          font-weight: 700;
+          font-size: clamp(28px, 5vw, 40px);
+          color: var(--color-accent);
+          letter-spacing: 1px;
+          text-transform: uppercase;
+          margin-bottom: 32px;
         }
         .outfit-creator-layout {
           display: flex;
           gap: 24px;
           margin-bottom: 48px;
         }
+        @media (max-width: 768px) {
+          .outfit-creator-layout {
+            flex-direction: column;
+          }
+        }
         .wardrobe-panel {
-          flex: 1;
+          flex: 35;
           min-width: 0;
         }
         .preview-panel {
-          flex: 1;
+          flex: 65;
           min-width: 0;
         }
         .wardrobe-panel h2,
         .preview-panel h2 {
-          font-size: 1.25rem;
-          margin-bottom: 12px;
-          color: #4a2c7a;
+          font-family: 'Playfair Display', 'Times New Roman', Georgia, serif;
+          font-weight: 700;
+          font-size: 20px;
+          color: var(--color-accent);
+          margin-bottom: 16px;
         }
         .empty-hint {
-          color: #888;
+          color: var(--color-muted);
           font-style: italic;
+          text-align: center;
+          padding: 24px 0;
         }
 
         /* Category Accordion */
         .category-accordion {
           margin-bottom: 8px;
-          border: 1px solid #ddd;
-          border-radius: 8px;
+          border: 1px solid var(--color-border);
+          border-radius: var(--radius-md);
           overflow: hidden;
         }
         .category-header {
@@ -318,26 +338,32 @@ function OutfitCreatorPage() {
           align-items: center;
           width: 100%;
           padding: 10px 14px;
-          background: #f5f0fa;
+          background: var(--color-surface);
           border: none;
           cursor: pointer;
-          font-size: 0.95rem;
+          font-size: 14px;
           font-weight: 600;
-          color: #2d1b4e;
+          color: var(--color-fg);
           text-align: left;
+          font-family: inherit;
+          transition: background 0.2s ease;
         }
         .category-header:hover {
-          background: #ebe0f7;
+          background: var(--color-surface_raised);
+        }
+        .category-header.open {
+          border-bottom: 1px solid var(--color-border);
         }
         .accordion-arrow {
-          font-size: 1.1rem;
+          font-size: 14px;
+          color: var(--color-muted);
         }
         .category-items {
           display: flex;
           flex-wrap: wrap;
           gap: 8px;
-          padding: 10px;
-          background: #fafafa;
+          padding: 12px;
+          background: var(--color-bg);
         }
 
         /* Drag Items */
@@ -345,18 +371,19 @@ function OutfitCreatorPage() {
           display: flex;
           flex-direction: column;
           align-items: center;
-          gap: 4px;
-          width: 90px;
-          padding: 6px;
-          border: 2px solid #e0d8f0;
-          border-radius: 8px;
-          background: #fff;
+          gap: 6px;
+          width: 96px;
+          padding: 8px;
+          border: 1.5px solid var(--color-border);
+          border-radius: var(--radius-md);
+          background: var(--color-surface);
           cursor: grab;
-          transition: transform 0.15s, box-shadow 0.15s;
+          transition: transform 0.15s, box-shadow 0.15s, border-color 0.15s;
         }
         .drag-item:hover {
           transform: scale(1.05);
-          box-shadow: 0 2px 8px rgba(0,0,0,0.12);
+          border-color: var(--color-accent);
+          box-shadow: 0 4px 16px var(--color-glow);
         }
         .drag-item:active {
           cursor: grabbing;
@@ -368,32 +395,35 @@ function OutfitCreatorPage() {
           border-radius: 6px;
         }
         .drag-item-label {
-          font-size: 0.7rem;
+          font-size: 11px;
           text-align: center;
           line-height: 1.2;
           overflow: hidden;
           text-overflow: ellipsis;
           white-space: nowrap;
           max-width: 100%;
+          color: var(--color-muted);
         }
 
         /* Drop Zone */
         .drop-zone {
-          min-height: 200px;
-          border: 2px dashed #b8a0d8;
-          border-radius: 12px;
-          padding: 16px;
-          background: #faf5ff;
+          min-height: 400px;
+          border: 2px dashed rgba(201, 168, 76, 0.5);
+          border-radius: var(--radius-lg);
+          padding: 24px;
+          background: var(--color-surface);
           display: flex;
           flex-direction: column;
-          gap: 10px;
-          transition: border-color 0.2s;
+          gap: 12px;
+          transition: all 0.25s ease;
         }
-        .drop-zone:hover {
-          border-color: #7c5cbf;
+        .drop-zone.drag-over {
+          border-color: var(--color-accent);
+          background: var(--color-surface_raised);
+          box-shadow: inset 0 0 60px var(--color-glow);
         }
         .drop-hint {
-          color: #b8a0d8;
+          color: var(--color-muted);
           text-align: center;
           margin: auto;
           font-style: italic;
@@ -404,98 +434,132 @@ function OutfitCreatorPage() {
           display: flex;
           align-items: center;
           gap: 12px;
-          padding: 8px 12px;
-          background: #fff;
-          border: 1px solid #e0d8f0;
-          border-radius: 8px;
+          padding: 12px 16px;
+          background: var(--color-surface_raised);
+          border: 1px solid var(--color-border);
+          border-radius: var(--radius-md);
+          box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+          transition: border-color 0.2s ease;
+        }
+        .preview-item:hover {
+          border-color: var(--color-accent);
         }
         .preview-item img {
-          width: 48px;
-          height: 48px;
+          width: 56px;
+          height: 74px;
           object-fit: cover;
-          border-radius: 4px;
+          border-radius: var(--radius-sm);
         }
         .preview-item-label {
           flex: 1;
-          font-size: 0.9rem;
-          color: #2d1b4e;
+          font-size: 14px;
+          font-weight: 500;
+          color: var(--color-fg);
         }
         .remove-btn {
           background: none;
           border: none;
-          color: #c44;
-          font-size: 1.1rem;
+          color: var(--color-muted);
+          font-size: 18px;
           cursor: pointer;
           padding: 4px 8px;
-          border-radius: 4px;
+          border-radius: var(--radius-sm);
+          transition: all 0.2s ease;
+          line-height: 1;
         }
         .remove-btn:hover {
-          background: #fdd;
+          color: var(--color-error);
+          background: rgba(192, 57, 43, 0.1);
         }
 
         /* Save Area */
         .outfit-save-area {
           display: flex;
-          gap: 10px;
+          gap: 12px;
           margin-top: 16px;
         }
         .outfit-name-input {
           flex: 1;
-          padding: 10px 14px;
-          border: 1px solid #b8a0d8;
-          border-radius: 8px;
-          font-size: 0.95rem;
+          background: var(--color-surface);
+          color: var(--color-fg);
+          border: 1.5px solid var(--color-border);
+          border-radius: var(--radius-md);
+          padding: 12px 16px;
+          font-size: 14px;
+          min-height: 48px;
+          font-family: inherit;
+          transition: border-color 0.2s ease;
+        }
+        .outfit-name-input::placeholder {
+          color: var(--color-muted);
         }
         .outfit-name-input:focus {
+          border-color: var(--color-accent);
+          box-shadow: 0 0 0 3px var(--color-glow);
           outline: none;
-          border-color: #7c5cbf;
-          box-shadow: 0 0 0 2px rgba(124,92,191,0.2);
         }
         .save-btn {
-          padding: 10px 24px;
-          background: #7c5cbf;
-          color: #fff;
+          padding: 12px 28px;
+          background: var(--color-accent);
+          color: var(--color-bg);
           border: none;
-          border-radius: 8px;
-          font-size: 0.95rem;
+          border-radius: var(--radius-md);
+          font-size: 14px;
           font-weight: 600;
           cursor: pointer;
+          font-family: inherit;
           white-space: nowrap;
+          min-height: 48px;
+          transition: all 0.2s ease;
         }
         .save-btn:hover {
-          background: #6a4dab;
+          background: var(--color-accent_light);
+          box-shadow: 0 0 20px var(--color-glow);
+        }
+        .save-btn:active {
+          background: var(--color-accent_dark);
+          transform: scale(0.97);
         }
         .save-btn:disabled {
-          background: #b8a0d8;
+          opacity: 0.4;
           cursor: not-allowed;
+          box-shadow: none;
+          transform: none;
         }
         .error-msg {
-          color: #c44;
+          color: var(--color-error);
           margin-top: 8px;
-          font-size: 0.9rem;
+          font-size: 14px;
         }
 
         /* Outfits List */
         .outfits-list-section h2 {
-          font-size: 1.5rem;
-          margin-bottom: 16px;
-          color: #2d1b4e;
+          font-family: 'Playfair Display', 'Times New Roman', Georgia, serif;
+          font-weight: 700;
+          font-size: 24px;
+          color: var(--color-accent);
+          margin-bottom: 20px;
         }
         .outfits-grid {
-          display: flex;
-          flex-wrap: wrap;
-          gap: 16px;
+          display: grid;
+          grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+          gap: 20px;
         }
         .outfit-card {
           display: flex;
           flex-direction: column;
           align-items: center;
-          gap: 8px;
-          width: 180px;
-          padding: 12px;
-          border: 1px solid #e0d8f0;
-          border-radius: 12px;
-          background: #faf5ff;
+          gap: 10px;
+          padding: 20px;
+          border: 1.5px dashed var(--color-border);
+          border-radius: var(--radius-lg);
+          background: var(--color-surface_raised);
+          transition: all 0.3s ease;
+          min-height: 200px;
+        }
+        .outfit-card:hover {
+          border-color: rgba(201, 168, 76, 0.6);
+          box-shadow: 0 4px 24px var(--color-glow);
         }
         .outfit-card-preview {
           display: flex;
@@ -505,27 +569,32 @@ function OutfitCreatorPage() {
         }
         .outfit-card-preview img {
           width: 56px;
-          height: 56px;
+          height: 74px;
           object-fit: cover;
-          border-radius: 6px;
+          border-radius: var(--radius-sm);
         }
         .outfit-card-name {
-          font-weight: 600;
-          font-size: 0.9rem;
-          color: #2d1b4e;
+          font-family: 'Playfair Display', 'Times New Roman', Georgia, serif;
+          font-weight: 700;
+          font-size: 16px;
+          color: var(--color-accent);
           text-align: center;
         }
         .delete-outfit-btn {
-          padding: 4px 14px;
-          background: #fee;
-          color: #c44;
-          border: 1px solid #fcc;
-          border-radius: 6px;
+          padding: 6px 18px;
+          background: transparent;
+          color: var(--color-error);
+          border: 1.5px solid var(--color-error);
+          border-radius: var(--radius-md);
           cursor: pointer;
-          font-size: 0.8rem;
+          font-size: 13px;
+          font-weight: 600;
+          font-family: inherit;
+          transition: all 0.2s ease;
+          min-height: 40px;
         }
         .delete-outfit-btn:hover {
-          background: #fdd;
+          background: rgba(192, 57, 43, 0.1);
         }
       `}</style>
     </div>
