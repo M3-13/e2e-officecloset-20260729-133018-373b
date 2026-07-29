@@ -11,7 +11,7 @@ def _create_user_and_login(client: TestClient) -> dict:
     email = f"test-{uuid.uuid4().hex[:8]}@example.com"
     resp = client.post(
         "/api/auth/register",
-        json={"email": email, "password": "securepassword123"},
+        json={"email": email, "password": "securepassword123", "privacy_accepted": True},
     )
     assert resp.status_code == 201
     return {"email": email, "id": resp.json()["id"]}

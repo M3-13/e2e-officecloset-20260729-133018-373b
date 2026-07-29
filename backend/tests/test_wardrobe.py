@@ -1,6 +1,7 @@
 import io
 import os
 import uuid
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -13,6 +14,10 @@ from models import User
 from wardrobe import UPLOAD_DIR, VALID_CATEGORIES
 
 
+def _utcnow() -> datetime:
+    return datetime.now(UTC).replace(tzinfo=None)
+
+
 def _create_user_with_session(email: str) -> str:
     db = SessionLocal()
     try:
@@ -21,7 +26,11 @@ def _create_user_with_session(email: str) -> str:
         db.commit()
         db.refresh(user)
         token = str(uuid.uuid4())
-        session = SessionModel(token=token, user_id=user.id)
+        session = SessionModel(
+            token=token,
+            user_id=user.id,
+            expires_at=_utcnow() + timedelta(hours=24),
+        )
         db.add(session)
         db.commit()
         return token

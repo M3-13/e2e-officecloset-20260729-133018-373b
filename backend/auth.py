@@ -1,14 +1,21 @@
+import os
 import re
 import uuid
+from datetime import UTC, datetime, timedelta
 
 import bcrypt
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from sqlalchemy.orm import Session
 
 from database import get_db
+from models import ClothingItem, User
 from models import Session as SessionModel
-from models import User
-from schemas import UserCreate, UserResponse
+from schemas import UserCreate, UserLogin, UserResponse
+
+
+def _utcnow() -> datetime:
+    return datetime.now(UTC).replace(tzinfo=None)
+
 
 auth_router = APIRouter(prefix="/api/auth", tags=["auth"])
 
@@ -41,6 +48,10 @@ def get_current_user(
     session = db.query(SessionModel).filter(SessionModel.token == token).first()
     if not session:
         raise HTTPException(status_code=401, detail="Ungültige Sitzung")
+    if session.expires_at < _utcnow():
+        db.delete(session)
+        db.commit()
+        raise HTTPException(status_code=401, detail="Sitzung abgelaufen")
     user = db.query(User).filter(User.id == session.user_id).first()
     if not user:
         raise HTTPException(status_code=401, detail="Benutzer nicht gefunden")
@@ -66,7 +77,11 @@ def register(payload: UserCreate, response: Response, db: Session = Depends(get_
     db.refresh(user)
 
     session_token = str(uuid.uuid4())
-    session = SessionModel(token=session_token, user_id=user.id)
+    session = SessionModel(
+        token=session_token,
+        user_id=user.id,
+        expires_at=_utcnow() + timedelta(hours=24),
+    )
     db.add(session)
     db.commit()
 
@@ -82,13 +97,17 @@ def register(payload: UserCreate, response: Response, db: Session = Depends(get_
 
 
 @auth_router.post("/login", response_model=UserResponse)
-def login(payload: UserCreate, response: Response, db: Session = Depends(get_db)):
+def login(payload: UserLogin, response: Response, db: Session = Depends(get_db)):
     user = db.query(User).filter(User.email == payload.email).first()
     if not user or not _verify_password(payload.password, user.password_hash):
         raise HTTPException(status_code=401, detail="E-Mail oder Passwort falsch")
 
     session_token = str(uuid.uuid4())
-    session = SessionModel(token=session_token, user_id=user.id)
+    session = SessionModel(
+        token=session_token,
+        user_id=user.id,
+        expires_at=_utcnow() + timedelta(hours=24),
+    )
     db.add(session)
     db.commit()
 
@@ -126,3 +145,31 @@ def logout(
 @auth_router.get("/me", response_model=UserResponse)
 def me(current_user: User = Depends(get_current_user)):
     return current_user
+
+
+UPLOAD_DIR = "uploads"
+
+
+@auth_router.delete("/me", status_code=204)
+def delete_account(
+    request: Request,
+    response: Response,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    items = db.query(ClothingItem).filter(ClothingItem.user_id == current_user.id).all()
+    for item in items:
+        file_path = os.path.join(UPLOAD_DIR, item.image_filename)
+        if os.path.exists(file_path):
+            os.remove(file_path)
+
+    db.delete(current_user)
+    db.commit()
+
+    response.delete_cookie(
+        key=SESSION_COOKIE,
+        httponly=True,
+        secure=False,
+        samesite="lax",
+    )
+    return None

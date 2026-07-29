@@ -29,6 +29,7 @@ class Session(Base):
     token = Column(String, default=lambda: str(uuid.uuid4()), unique=True, nullable=False)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     created_at = Column(DateTime, default=lambda: datetime.now(UTC), nullable=False)
+    expires_at = Column(DateTime, nullable=False)
 
     user = relationship("User", back_populates="sessions")
 

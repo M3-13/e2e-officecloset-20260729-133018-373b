@@ -98,3 +98,22 @@ Response `200`:
 - Garderobe: Kleidungsstücke anlegen, durchstöbern und nach Kategorie filtern
 - Outfit-Creator: Drag-and-Drop, Outfits speichern und verwalten
 - Bild-Upload mit EXIF-Bereinigung und Magic-Byte-Validierung
+
+## Sicherheit
+
+- **Passwort-Hashing:** Alle Passwörter werden mit bcrypt (Kostenfaktor 12) gehasht – Klartextpasswörter
+  werden zu keinem Zeitpunkt gespeichert oder geloggt.
+- **Session-Cookies:** Authentifizierung erfolgt über HttpOnly-Session-Cookies.
+  Sessions verfallen automatisch nach 24 Stunden Inaktivität. Kein localStorage,
+  kein clientseitiger Token-Zugriff.
+- **Bildvalidierung:** Hochgeladene Bilder werden per Magic-Byte-Prüfung auf
+  JPEG, PNG und WebP beschränkt. EXIF-/Metadaten werden vor dem Speichern
+  entfernt. Dateinamen werden durch kryptografisch zufällige UUIDs ersetzt.
+- **Dateigrößenbeschränkung:** Uploads sind auf maximal 10 MB begrenzt.
+- **Zugriffskontrolle:** Alle API-Endpunkte prüfen strikt die
+  Benutzerzugehörigkeit (IDOR-Schutz). Bilder können nur vom Eigentümer
+  abgerufen werden.
+- **Kontolöschung:** Benutzer können ihr Konto vollständig löschen – inklusive
+  aller Kleidungsbilder, Sessions, Outfits und personenbezogener Daten.
+
+Weitere Details siehe [`SECURITY.md`](./SECURITY.md).
