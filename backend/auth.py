@@ -1,8 +1,8 @@
 import re
 import uuid
 
+import bcrypt
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
-from passlib.context import CryptContext
 from sqlalchemy.orm import Session
 
 from database import get_db
@@ -12,8 +12,17 @@ from schemas import UserCreate, UserResponse
 
 auth_router = APIRouter(prefix="/api/auth", tags=["auth"])
 
-pwd_context = CryptContext(schemes=["bcrypt"], bcrypt__rounds=12, deprecated="auto")
 SESSION_COOKIE = "session_token"
+
+
+def _hash_password(password: str) -> str:
+    return bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt(rounds=12)).decode("utf-8")
+
+
+def _verify_password(password: str, password_hash: str) -> bool:
+    return bcrypt.checkpw(password.encode("utf-8"), password_hash.encode("utf-8"))
+
+
 _EMAIL_RE = re.compile(r"^[^\s@]+@[^\s@]+\.[^\s@]+$")
 
 
@@ -50,7 +59,7 @@ def register(payload: UserCreate, response: Response, db: Session = Depends(get_
 
     user = User(
         email=payload.email,
-        password_hash=pwd_context.hash(payload.password),
+        password_hash=_hash_password(payload.password),
     )
     db.add(user)
     db.commit()
@@ -75,7 +84,7 @@ def register(payload: UserCreate, response: Response, db: Session = Depends(get_
 @auth_router.post("/login", response_model=UserResponse)
 def login(payload: UserCreate, response: Response, db: Session = Depends(get_db)):
     user = db.query(User).filter(User.email == payload.email).first()
-    if not user or not pwd_context.verify(payload.password, user.password_hash):
+    if not user or not _verify_password(payload.password, user.password_hash):
         raise HTTPException(status_code=401, detail="E-Mail oder Passwort falsch")
 
     session_token = str(uuid.uuid4())
