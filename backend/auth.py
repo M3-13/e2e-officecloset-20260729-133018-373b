@@ -21,6 +21,8 @@ auth_router = APIRouter(prefix="/api/auth", tags=["auth"])
 
 SESSION_COOKIE = "session_token"
 
+COOKIE_KWARGS = {"httponly": True, "secure": True, "samesite": "strict"}
+
 
 def _hash_password(password: str) -> str:
     return bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt(rounds=12)).decode("utf-8")
@@ -88,9 +90,7 @@ def register(payload: UserCreate, response: Response, db: Session = Depends(get_
     response.set_cookie(
         key=SESSION_COOKIE,
         value=session_token,
-        httponly=True,
-        secure=False,
-        samesite="lax",
+        **COOKIE_KWARGS,
     )
 
     return user
@@ -114,9 +114,7 @@ def login(payload: UserLogin, response: Response, db: Session = Depends(get_db))
     response.set_cookie(
         key=SESSION_COOKIE,
         value=session_token,
-        httponly=True,
-        secure=False,
-        samesite="lax",
+        **COOKIE_KWARGS,
     )
 
     return user
@@ -135,9 +133,7 @@ def logout(
 
     response.delete_cookie(
         key=SESSION_COOKIE,
-        httponly=True,
-        secure=False,
-        samesite="lax",
+        **COOKIE_KWARGS,
     )
     return None
 
@@ -168,8 +164,6 @@ def delete_account(
 
     response.delete_cookie(
         key=SESSION_COOKIE,
-        httponly=True,
-        secure=False,
-        samesite="lax",
+        **COOKIE_KWARGS,
     )
     return None
