@@ -113,6 +113,7 @@ def delete_item(
 def serve_image(
     filename: str,
     current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
 ):
     if ".." in filename or "/" in filename or "\\" in filename:
         raise HTTPException(status_code=422, detail="Ungültiger Dateiname")
@@ -121,6 +122,17 @@ def serve_image(
     allowed_dir = os.path.abspath(UPLOAD_DIR)
 
     if not file_path.startswith(allowed_dir + os.sep) or not os.path.isfile(file_path):
+        raise HTTPException(status_code=404, detail="Bild nicht gefunden")
+
+    item = (
+        db.query(ClothingItem)
+        .filter(
+            ClothingItem.image_filename == filename,
+            ClothingItem.user_id == current_user.id,
+        )
+        .first()
+    )
+    if not item:
         raise HTTPException(status_code=404, detail="Bild nicht gefunden")
 
     media_type = detect_image_type(file_path)

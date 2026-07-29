@@ -1,9 +1,24 @@
 from datetime import datetime
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, field_validator
 
 
 class UserCreate(BaseModel):
+    email: str
+    password: str
+    privacy_accepted: bool = Field(
+        ..., description="Bestätigung der Datenschutzerklärung - muss true sein"
+    )
+
+    @field_validator("privacy_accepted")
+    @classmethod
+    def must_be_true(cls, v: bool) -> bool:
+        if v is not True:
+            raise ValueError("Datenschutzerklärung muss akzeptiert werden")
+        return v
+
+
+class UserLogin(BaseModel):
     email: str
     password: str
 

@@ -59,6 +59,28 @@ const CSS = `
   .auth-footer a:hover {
     color: var(--color-accent_light);
   }
+  .privacy-checkbox {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    font-size: 13px;
+    color: var(--color-muted);
+    line-height: 1.4;
+  }
+  .privacy-checkbox input[type="checkbox"] {
+    margin-top: 2px;
+    width: 16px;
+    height: 16px;
+    accent-color: var(--color-accent);
+    flex-shrink: 0;
+  }
+  .privacy-checkbox a {
+    color: var(--color-accent);
+    text-decoration: underline;
+  }
+  .privacy-checkbox a:hover {
+    color: var(--color-accent_light);
+  }
 `;
 
 function RegisterPage() {
@@ -67,6 +89,7 @@ function RegisterPage() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
+  const [privacyAccepted, setPrivacyAccepted] = useState(false);
   const [error, setError] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
@@ -81,7 +104,7 @@ function RegisterPage() {
 
     setSubmitting(true);
     try {
-      await register(email, password);
+      await register(email, password, privacyAccepted);
       navigate('/wardrobe', { replace: true });
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Registrierung fehlgeschlagen');
@@ -132,8 +155,20 @@ function RegisterPage() {
                 autoComplete="new-password"
               />
             </label>
+            <label className="privacy-checkbox">
+              <input
+                type="checkbox"
+                checked={privacyAccepted}
+                onChange={(e) => setPrivacyAccepted(e.target.checked)}
+              />
+              <span>
+                Ich habe die{' '}
+                <Link to="/privacy" target="_blank">Datenschutzerklärung</Link>{' '}
+                gelesen und stimme der Verarbeitung meiner Daten zu.
+              </span>
+            </label>
             {error && <p className="auth-error" role="alert">{error}</p>}
-            <button type="submit" className="btn btn-primary" disabled={submitting}>
+            <button type="submit" className="btn btn-primary" disabled={submitting || !privacyAccepted}>
               {submitting ? 'Wird registriert...' : 'Registrieren'}
             </button>
           </form>
