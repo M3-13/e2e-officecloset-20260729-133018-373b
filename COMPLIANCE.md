@@ -1,88 +1,85 @@
 VERDICT: CHANGES_REQUESTED
 
-## Strukturierte Compliance-Prüfung – Glamouröser Kleiderschrank-Manager
+## 1. DSGVO-konforme Datenverarbeitung
+
+### 1.1 Rechtsgrundlagen und Einwilligung
+**Bewertung:**  
+Die Datenverarbeitung stützt sich auf die Rechtsgrundlagen Art. 6 Abs. 1 lit. a DSGVO (Einwilligung) und lit. b (Vertragserfüllung). Die Registrierung erfordert eine explizite Zustimmung zur Datenschutzerklärung über eine Checkbox (Backend-seitig `privacy_accepted: True` im Pydantic-Modell). Das ist zulässig, da die Einwilligung informiert, freiwillig und unmissverständlich erfolgt.  
+Es gibt keine offensichtliche Verarbeitung ohne Rechtsgrundlage.
+
+### 1.2 Datenminimierung und Speicherbegrenzung
+**Bewertung:**  
+Personenbezogene Daten sind auf E-Mail, Passwort-Hash (bcrypt, 12 Runden), hochgeladene Bilder und Sitzungs-Token beschränkt. Bilder werden ohne EXIF gespeichert. Session-Token verfallen nach 24 Stunden. Die Speicherdauer ist angemessen: Alle Daten werden mit der Kontolöschung unwiderruflich gelöscht.  
+*Kein kritischer Mangel.*
+
+**Fund 1 – Mangelhafte Session-Bereinigung (DSGVO – „Speicherbegrenzung“)**  
+*Severity:* **low**  
+*Problem:* Abgelaufene Sessions verbleiben in der Datenbank, bis ein Zugriff mit abgelaufenem Token erfolgt (Löschung nur beim Authentifizierungsversuch). Dies widerspricht dem Grundsatz der Speicherbegrenzung (Art. 5 Abs. 1 lit. e DSGVO), da nicht mehr benötigte personenbezogene Daten (Zuordnung Token → User) unbegrenzt gespeichert werden.  
+*Remedy:* Implementieren Sie einen periodischen Hintergrund-Job (z. B. mit `APScheduler` oder `aiocron`), der `DELETE FROM sessions WHERE expires_at < datetime('now')` ausführt. Alternativ können Sie die Bereinigung bei jedem Login- oder Logout-Vorgang durchführen.  
+*Betroffene Dateien:* `backend/auth.py`, `backend/models.py` (Datenbankschema), ggf. neue Job-Komponente.
 
 ---
 
-### 1. DSGVO (Datenschutz-Grundverordnung)
+## 2. EU Cyber Resilience Act (CRA) – Sicherheit
+### 2.1 Security by Design & Default
+**Bewertung:**  
+Authentifizierung per HttpOnly/​Secure/​SameSite-Strict-Cookie, sichere Passwort-Hashes, Pfad-Traversal-Prüfung, Magic-Byte-Validierung, EXIF-Entfernung – alles solide umgesetzt. Die Entwicklungs-CORS-Einstellungen müssen produktionstauglich gemacht werden (nächster Fund).
 
-#### 1.1 Session-Cookie entspricht nicht den Sicherheitsakzeptanzkriterien
-- **Schwere:** HOCH
-- **Beschreibung:** Die Sicherheits‑AC verlangen `HttpOnly`, `Secure` und `SameSite=Strict` für das Sitzungs‑Token. Der Code in `backend/auth.py` (Register, Login, Logout) setzt jedoch:
-  - `secure=False`
-  - `samesite="lax"`
-  Dadurch wird der Cookie bei unsicherer Verbindung (HTTP) übertragen und bietet nur reduzierten CSRF‑Schutz.
-- **Rechtliche Einordnung:** Art. 32 DSGVO verlangt geeignete technische und organisatorische Maßnahmen zum Schutz personenbezogener Daten. Eine unverschlüsselte Übertragung des Session‑Tokens birgt ein erhebliches Risiko für unbefugten Zugriff.
-- **Abhilfe:**
-  1. In `backend/auth.py` bei **jeder** `response.set_cookie(…)` den Parameter `secure=True` setzen. Optional dynamisch aus einer Umgebungsvariable (`ENVIRONMENT == "production"`) steuern.
-  2. `samesite="strict"` statt `"lax"` setzen.
-  3. Beispiel für die Registrierung (analog bei Login und Logout):
-     ```python
-     response.set_cookie(
-         key=SESSION_COOKIE,
-         value=session_token,
-         httponly=True,
-         secure=True,
-         samesite="strict",
-     )
-     ```
+**Fund 2 – Produktions-CORS (CRA / Security by Design)**  
+*Severity:* **medium**  
+*Problem:* `main.py` erlaubt `allow_origins=["http://localhost:5173", "http://localhost:5174"]` – ein später Over-the-air-Update auf eine öffentliche Domain ist nicht vorgesehen und die derzeitige Konfiguration wäre in der Produktion zu weit geöffnet.  
+*Remedy:* CORS-Origins aus einer Umgebungsvariablen (z. B. `ALLOWED_ORIGINS`) laden und in der Deployment-Dokumentation auf die tatsächliche Domain beschränken. Die hartcodierten Localhost-URLs nur für die Entwicklung beibehalten, wenn `ENV != production`.  
+*Betroffene Datei:* `backend/main.py`.
 
-#### 1.2 DDL‑Zugriff der Applikation im Produktivbetrieb
-- **Schwere:** MITTEL
-- **Beschreibung:** Die Acceptance‑Criteria verlangen, dass die Datenbank‑Verbindung im Produktivbetrieb keine DDL‑Rechte besitzt. Jedoch enthält `backend/database.py` `init_db()`, die beim Start `Base.metadata.create_all()` und eine `ALTER TABLE`-Anweisung ausführt. Dies gewährt der Applikation faktisch DDL‑Zugriff und kann im Produktivbetrieb zu unbeabsichtigten Schemaänderungen führen.
-- **Rechtliche Einordnung:** Art. 32 DSGVO – Sicherheit der Verarbeitung. Ein schreibender Zugriff auf das Datenbankschema ist ein vermeidbares Risiko.
-- **Abhilfe:**
-  - Im Produktionsmodus die Ausführung von `init_db()` unterbinden, z. B. durch eine Umgebungsvariable `SKIP_DB_INIT=true`.
-  - Alternativ die Datenbank‑Initialisierung in ein separates Verwaltungsskript auslagern und aus `main.py` entfernen.
+### 2.2 Software Bill of Materials (SBOM)
+**Fund 3 – Unzureichende SBOM (CRA Annex II, 2.3)**  
+*Severity:* **medium**  
+*Problem:* `sbom.json` enthält nur 5 Zeilen und erfüllt nicht die Anforderung einer maschinenlesbaren Stückliste aller Abhängigkeiten (Python + JavaScript). Ein Produkt mit digitalen Elementen muss eine SBOM bereitstellen, die mindestens die obersten Abhängigkeiten und deren Versionen auflistet.  
+*Remedy:* Erstellen Sie eine vollständige SBOM im SPDX- oder CycloneDX-Format, z. B. mit Tools wie `cyclonedx-bom` (Python) und `@cyclonedx/cyclonedx-npm` (Frontend). Aktualisieren Sie `sbom.json` oder legen Sie separate Dateien ab.  
+*Betroffene Dateien:* `sbom.json`, ggf. neue Dateien.
 
-#### 1.3 Übrige DSGVO‑Aspekte (ohne Mängel)
-- **Rechtsgrundlage:** Die Datenschutzerklärung nennt Art. 6 Abs. 1 lit. a) (Einwilligung) und lit. b) (Vertragserfüllung). Der Einwilligung wird durch das verpflichtende `privacy_accepted`-Checkbox im Pydantic‑Modell (`backend/schemas.py`) und das Blockieren der Registrierung ohne Zustimmung im Frontend (`frontend/src/pages/RegisterPage.tsx`) Rechnung getragen.
-- **Datenminimierung & Speicherfristen:** Hochgeladene Bilder werden von EXIF‑Metadaten befreit (`strip_exif`), Dateigröße und -typen strikt validiert. Personenbezogene Daten werden nur für die Dauer der Kontoführung gespeichert (siehe PrivacyPage).
-- **Betroffenenrechte:** Die Datenschutzerklärung informiert über Auskunft, Berichtigung, Löschung (Kontolöschung) und Widerspruch. Kontolöschung ist als Hard‑Deletion implementiert (`backend/auth.py:delete_account`), Konformität mit der Team‑Konvention.
-- **Logs:** Keine Ausgabe von E‑Mail‑Adressen oder Passwörtern im Code – erfüllt.
+### 2.3 Update- und Patch-Prozess
+**Fund 4 – Fehlende Update-Strategie (CRA Art. 3(5), Art. 13)**  
+*Severity:* **medium**  
+*Problem:* Es gibt keine dokumentierte Methode, um Sicherheitsupdates oder Patches einzuspielen. Der CRA verlangt, dass das Produkt während des gesamten Lebenszyklus mit Sicherheitsaktualisierungen versorgt werden kann.  
+*Remedy:* Dokumentieren Sie in `SECURITY.md` oder `COMPLIANCE.md`, wie Updates eingespielt werden (z. B. Neustart des Backend-Servers, CI/CD-Pipeline). Fügen Sie einen Abschnitt „Sicherheitsupdates“ hinzu und geben Sie einen Kontakt für Schwachstellenmeldungen an.  
+*Betroffene Dateien:* `SECURITY.md`, `COMPLIANCE.md`.
 
 ---
 
-### 2. EU Cyber Resilience Act (CRA)
+## 3. Pflichttexte & UI
+**Bewertung:**  
+Ein vollständiges Impressum (`ImprintPage.tsx`) und eine ausführliche Datenschutzerklärung (`PrivacyPage.tsx`) sind vorhanden und über den Footer jeder Seite erreichbar. Die Datenschutzerklärung benennt Verantwortlichen, Zwecke, Rechtsgrundlagen, Datenkategorien, Speicherdauer, Betroffenenrechte und Cookie-Information – sie erfüllt die Informationspflichten nach Art. 13 DSGVO.  
+Ein gesonderter Cookie-Consent-Banner ist nicht erforderlich, da ausschließlich ein technisch notwendiger Authentifizierungs-Cookie verwendet wird (ePrivacy-Richtlinie 2002/58/EG, § 25 TTDSG). Die Einwilligung für die Registrierung (privacy_accepted) ist funktionell und juristisch schlüssig.  
+*Keine kritischen Lücken.*
 
-#### 2.1 SBOM (Software Bill of Materials)
-- **Schwere:** MITTEL
-- **Beschreibung:** Die Datei `sbom.json` existiert, enthält aber laut Dateiliste nur 5 Zeilen und ist offensichtlich nicht aussagekräftig. Eine vollständige, maschinenlesbare Liste der Abhängigkeiten (SPDX/CycloneDX) fehlt.
-- **Rechtliche Einordnung:** Für Produkte mit digitalen Elementen verlangt der CRA, dass Schwachstellen in Abhängigkeiten nachvollziehbar sind. Ohne SBOM ist weder ein effektives Patch‑Management noch eine Sicherheitsbewertung möglich.
-- **Abhilfe:**
-  - Eine vollständige SBOM generieren, z. B. mit `pipdeptree --json-tree` oder `pip-audit` für Python und `npm list --json` für das Frontend, und in `sbom.json` ablegen.
-  - Automatisierung der SBOM‑Erstellung in die CI‑Pipeline integrieren.
-
-#### 2.2 Sonstige CRA‑Anforderungen
-- **Update‑Fähigkeit:** Da es sich um eine serverseitige Web‑Anwendung handelt, kann der Betreiber jederzeit Updates einspielen – keine speziellen Mechanismen im Code nötig.
-- **Security by design:** Die implementierten Sicherheitsvorkehrungen (bcrypt, Magic‑Byte‑Prüfung, EXIF‑Stripping, Traversal‑Schutz) sind angemessen.
+**Fund 5 – Checkbox-Text verbesserungswürdig (Transparenz, DSGVO Art. 7 Abs. 2)**  
+*Severity:* **low**  
+*Problem:* Die Checkbox vereinfacht die Zustimmung zu „Ich habe die Datenschutzerklärung gelesen und stimme der Verarbeitung meiner Daten zu.“ Inhaltlich ausreichend, aber eine saubere Trennung von Kenntnisnahme und Einwilligung erhöht die Transparenz und beweisrechtliche Sicherheit.  
+*Remedy:* Ersetzen Sie den Text durch: „Ich habe die Datenschutzerklärung gelesen und willige in die darin beschriebene Verarbeitung meiner Daten gemäß Art. 6 Abs. 1 lit. a DSGVO ein.“ (gemeinsame Checkbox). Optional kann eine zweite Checkbox nur für die Kenntnisnahme hinzugefügt werden – aber nicht zwingend.  
+*Betroffene Datei:* `frontend/src/pages/RegisterPage.tsx`.
 
 ---
 
-### 3. Mandatory Texts & UI
+## 4. Barrierefreiheit (EU-Richtlinie 2019/882 – European Accessibility Act / WCAG 2.1)
+**Bewertung:**  
+Eine öffentliche Webanwendung wie dieser Kleiderschrank-Manager fällt unter die Vorgaben des European Accessibility Acts (für digitale Dienstleistungen). Der derzeitige Entwicklungsstand weist erhebliche Barrieren auf.
 
-#### 3.1 Impressum mit Platzhalterdaten
-- **Schwere:** MITTEL
-- **Beschreibung:** `frontend/src/pages/ImprintPage.tsx` enthält ein Impressum nach § 5 TMG, jedoch mit fiktiven Angaben (GlamCloset GmbH, Musterstraße 1, HRB 123456, DE123456789). Für ein echtes Marktprodukt ist dies unzureichend.
-- **Rechtliche Einordnung:** Pflichtangaben gemäß § 5 TMG müssen korrekt und aktuell sein. Platzhalter erfüllen die gesetzliche Anforderung nicht.
-- **Abhilfe:** Vor dem Inverkehrbringen alle Platzhalter durch die tatsächlichen Unternehmensdaten des Betreibers ersetzen.
+**Fund 6 – Drag-and-Drop ohne Tastaturalternative (WCAG 2.1.1, 2.1.3)**  
+*Severity:* **high**  
+*Problem:* Im Outfit Creator (`OutfitCreatorPage.tsx`) können Kleidungsstücke ausschließlich per Maus-Drag-and-Drop hinzugefügt werden. Es fehlt jede Bedienung per Tastatur oder assistierender Technologie. Dies schließt blinde, sehbehinderte und motorisch eingeschränkte Nutzer aus und verstößt gegen die zwingenden Erfolgskriterien für Tastaturbedienbarkeit.  
+*Remedy:* Fügen Sie eine parallele Interaktionsmöglichkeit ein: z. B. durch Doppelklick oder Kontextmenü („Zum Outfit hinzufügen“) oder eine „Auswahl“-Schaltfläche pro Garderobenstück, die das Element per Knopfdruck in die Vorschau übernimmt. Stellen Sie sicher, dass alle Elemente im Fokus-Zyklus liegen und ARIA-Rollen (`aria-label`, `role="list"`, `role="option"`) korrekt gesetzt sind.  
+*Betroffene Dateien:* `frontend/src/pages/OutfitCreatorPage.tsx`, ggf. ergänzende CSS/JS.
 
-#### 3.2 Datenschutzerklärung
-- Die Seite `/privacy` enthält eine vollständige Datenschutzerklärung (Verantwortlicher, Zwecke, Rechtsgrundlagen, Kategorien, Speicherdauer, Betroffenenrechte, Cookie‑Information). Keine Mängel.
-
-#### 3.3 Cookie‑Banner
-- Es wird nur ein technisch notwendiger Session‑Cookie verwendet. Nach ePrivacy‑Richtlinie ist dafür keine Einwilligung erforderlich, ein Banner ist entbehrlich. Die Information erfolgt in der Datenschutzerklärung – konform.
-
----
-
-### 4. Accessibility (WCAG / BITV / EAA)
-
-#### 4.1 Keine barrierefreie Gestaltung
-- **Schwere:** NIEDRIG
-- **Beschreibung:** Der Code enthält keine besonderen Maßnahmen zur Barrierefreiheit (ARIA‑Rollen, Tastaturnavigation, semantische HTML‑Struktur). Für ein privates Web‑MVP ohne öffentlichen Träger besteht aktuell keine zwingende gesetzliche Pflicht, jedoch wäre eine frühzeitige Berücksichtigung empfehlenswert.
-- **Rechtliche Einordnung:** Der European Accessibility Act (EAA) könnte ab 2025 für bestimmte Dienste gelten. Derzeit kein Verstoß, aber ein Risiko für die Zukunft.
-- **Abhilfe:** Semantische HTML‑Elemente (z. B. `<main>`, `<nav>`, `<section>`) einsetzen, Fokus‑Management prüfen und bei Bedarf ARIA‑Attribute ergänzen.
+**Fund 7 – Allgemeine Tastatur- und Screenreader-Unterstützung ungenügend**  
+*Severity:* **medium**  
+*Problem:* Die gesamte Anwendung verwendet keine ARIA-Landmarks (z. B. `main`, `navigation`), die Formulare haben keine expliziten `for`/`id`-Verknüpfungen oder `aria-describedby` für Fehlermeldungen. Dadurch ist die Navigation mit Screenreadern stark eingeschränkt.  
+*Remedy:* Fügen Sie ARIA-Landmarks und semantische HTML5-Elemente hinzu (`<main>`, `<nav>`, `<footer>`, `<form … aria-label="…">`). Verknüpfen Sie Fehlermeldungen mit den zugehörigen Eingabefeldern über `aria-invalid` und `aria-describedby`. Sicherzustellen, dass alle interaktiven Elemente per Tabulatortaste erreichbar sind und der Fokus sichtbar ist (outline nicht unterdrückt).  
+*Betroffene Dateien:* diverse Frontend-Dateien (`App.tsx`, `NavBar.tsx`, `RegisterPage.tsx`, `LoginPage.tsx`, `WardrobePage.tsx`).
 
 ---
 
-**Gesamtergebnis:** Das Produkt ist grundsätzlich DSGVO‑konform, weist jedoch zwei sicherheitsrelevante Abweichungen (unsicherer Cookie, DDL‑Zugriff) sowie unzureichende Impressumsdaten und eine unvollständige SBOM auf. Diese Punkte müssen vor der Marktfreigabe behoben werden – daher `VERDICT: CHANGES_REQUESTED`.
+### Fazit  
+Die Anwendung ist datenschutzrechtlich gut aufgestellt, weist jedoch Lücken im Bereich Cyber-Resilienz (SBOM, Update-Prozess, Produktionsabsicherung) und vor allem eine **erhebliche Barrierefreiheitslücke** auf, die vor einem Marktstart behoben werden muss. Der Sprint ist nicht blockiert, da keine fundamentalen Rechtsverstöße (Verarbeitung ohne Rechtsgrundlage, Datenschutzverletzung) vorliegen. Daher lautet das Urteil:
+
+**VERDICT: CHANGES_REQUESTED**
