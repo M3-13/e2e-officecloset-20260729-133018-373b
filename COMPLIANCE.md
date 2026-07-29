@@ -1,90 +1,88 @@
-VERDICT: BLOCKED
+VERDICT: CHANGES_REQUESTED
 
-## 1. DSGVO (Datenschutz-Grundverordnung)
-
-### 1.1 Fehlende Rechtsgrundlage für die Verarbeitung personenbezogener Daten (E-Mail) – Einwilligung nicht eingeholt
-**Schweregrad:** kritisch  
-**Fundstelle:** `backend/schemas.py` (UserCreate), `frontend/src/pages/RegisterPage.tsx`, Teamkonvention »Privacy checkbox is a required field on the Pydantic model; the frontend blocks submit if unchecked.«  
-**Problem:** Bei der Registrierung werden E-Mail-Adresse und Passwort verarbeitet. Es fehlt jeglicher Mechanismus, um eine informierte Einwilligung des Nutzers einzuholen – weder ein erforderliches Häkchen noch ein Hinweis auf die Datenschutzerklärung. Ohne diesen Nachweis fehlt eine Rechtsgrundlage im Sinne von Art. 6 Abs. 1 lit. a DSGVO.  
-**Maßnahme:**
-1. In `backend/schemas.py` das Pydantic-Modell `UserCreate` um ein Pflichtfeld `privacy_accepted: bool` erweitern, das nur `True` akzeptiert wird.
-2. In `frontend/src/pages/RegisterPage.tsx` eine Checkbox mit Label einbauen (z. B. „Ich habe die <Link to="/privacy">Datenschutzerklärung</Link> gelesen und stimme der Verarbeitung meiner Daten zu.“) und das Absenden nur erlauben, wenn die Checkbox aktiviert ist.
-3. Die Datenschutzerklärung muss unter `/privacy` erreichbar sein (siehe Abschnitt 4).
-
-### 1.2 Fehlendes Recht auf Löschung des Benutzerkontos (Art. 17 DSGVO)
-**Schweregrad:** kritisch  
-**Fundstelle:** `backend/auth.py` (nur `logout` vorhanden)  
-**Problem:** Nutzer können ihr Konto nicht selbstständig löschen. Es gibt keinen API-Endpunkt, der das gesamte Benutzerkonto einschließlich aller zugehörigen Garderoben-Items, Outfits und Sitzungen unwiderruflich entfernt. Dies verstößt gegen das Recht auf Löschung.  
-**Maßnahme:**
-1. In `backend/auth.py` einen neuen Endpunkt `DELETE /api/auth/me` (geschützt durch `get_current_user`) implementieren.
-2. Der Endpunkt löscht den aktuellen Benutzerdatensatz (`User`) aus der Datenbank – durch das konfigurierte `cascade="all, delete-orphan"` in den Modellen werden automatisch alle Sessions, ClothingItems, Outfits und OutfitItems mitgelöscht.
-3. Zusätzlich müssen die auf dem Dateisystem gespeicherten Bilder (`uploads/`) der zugehörigen Kleidungsstücke entfernt werden. Daher vor dem Löschen des Users die Dateipfade aller `ClothingItem`-Datensätze des Users ermitteln und die entsprechenden Dateien löschen.
-4. Nach erfolgreicher Löschung das Session-Cookie entfernen (`response.delete_cookie`) und Status 204 zurückgeben.
-
-### 1.3 Fehlende Transparenz- und Informationspflichten (Art. 13 DSGVO)
-**Schweregrad:** kritisch  
-**Problem:** Es existiert keine verlinkte oder angezeigte Datenschutzerklärung. Nutzer erhalten keine Informationen über Zweck, Rechtsgrundlage, Speicherdauer oder ihre Rechte.  
-**Maßnahme:** Siehe Abschnitt 4 (Pflichttexte).
+## Strukturierte Compliance-Prüfung – Glamouröser Kleiderschrank-Manager
 
 ---
 
-## 2. EU Cyber Resilience Act (CRA)
+### 1. DSGVO (Datenschutz-Grundverordnung)
 
-### 2.1 Unvollständige Sicherheitsdokumentation
-**Schweregrad:** medium  
-**Fundstelle:** gesamtes Projekt  
-**Problem:** Das Produkt enthält keine dokumentierten Sicherheitseigenschaften, keine Benennung eines Sicherheitskontakts und keine SBOM. Der CRA verlangt für Produkte mit digitalen Elementen, dass Sicherheitsrisiken gemeldet werden können und Hersteller support-/updatefähig sind.  
-**Maßnahme:**
-1. Eine `SECURITY.md` im Repository mit einer Kontaktadresse für Sicherheitsmeldungen erstellen.
-2. Eine einfache SBOM (Software Bill of Materials) als `sbom.json` ablegen – z. B. mittels `pip freeze` und `npm list --json` generiert.
-3. In der `README.md` auf die Maßnahmen zur Sicherheit (Passwort-Hashing, sichere Cookies, Bildvalidierung) und den Aktualisierungsprozess hinweisen.
+#### 1.1 Session-Cookie entspricht nicht den Sicherheitsakzeptanzkriterien
+- **Schwere:** HOCH
+- **Beschreibung:** Die Sicherheits‑AC verlangen `HttpOnly`, `Secure` und `SameSite=Strict` für das Sitzungs‑Token. Der Code in `backend/auth.py` (Register, Login, Logout) setzt jedoch:
+  - `secure=False`
+  - `samesite="lax"`
+  Dadurch wird der Cookie bei unsicherer Verbindung (HTTP) übertragen und bietet nur reduzierten CSRF‑Schutz.
+- **Rechtliche Einordnung:** Art. 32 DSGVO verlangt geeignete technische und organisatorische Maßnahmen zum Schutz personenbezogener Daten. Eine unverschlüsselte Übertragung des Session‑Tokens birgt ein erhebliches Risiko für unbefugten Zugriff.
+- **Abhilfe:**
+  1. In `backend/auth.py` bei **jeder** `response.set_cookie(…)` den Parameter `secure=True` setzen. Optional dynamisch aus einer Umgebungsvariable (`ENVIRONMENT == "production"`) steuern.
+  2. `samesite="strict"` statt `"lax"` setzen.
+  3. Beispiel für die Registrierung (analog bei Login und Logout):
+     ```python
+     response.set_cookie(
+         key=SESSION_COOKIE,
+         value=session_token,
+         httponly=True,
+         secure=True,
+         samesite="strict",
+     )
+     ```
 
----
+#### 1.2 DDL‑Zugriff der Applikation im Produktivbetrieb
+- **Schwere:** MITTEL
+- **Beschreibung:** Die Acceptance‑Criteria verlangen, dass die Datenbank‑Verbindung im Produktivbetrieb keine DDL‑Rechte besitzt. Jedoch enthält `backend/database.py` `init_db()`, die beim Start `Base.metadata.create_all()` und eine `ALTER TABLE`-Anweisung ausführt. Dies gewährt der Applikation faktisch DDL‑Zugriff und kann im Produktivbetrieb zu unbeabsichtigten Schemaänderungen führen.
+- **Rechtliche Einordnung:** Art. 32 DSGVO – Sicherheit der Verarbeitung. Ein schreibender Zugriff auf das Datenbankschema ist ein vermeidbares Risiko.
+- **Abhilfe:**
+  - Im Produktionsmodus die Ausführung von `init_db()` unterbinden, z. B. durch eine Umgebungsvariable `SKIP_DB_INIT=true`.
+  - Alternativ die Datenbank‑Initialisierung in ein separates Verwaltungsskript auslagern und aus `main.py` entfernen.
 
-## 3. EU AI Act
-Nicht anwendbar – das Produkt enthält keine KI-Komponenten. Keine Beanstandungen.
-
----
-
-## 4. Pflichttexte & UI (Impressum, Datenschutz, Cookie-Hinweis)
-
-### 4.1 Fehlendes Impressum (DDG/TMG)
-**Schweregrad:** kritisch  
-**Fundstelle:** `frontend/src/App.tsx`, `frontend/src/components/NavBar.tsx`, `frontend/index.html`  
-**Problem:** Für ein öffentlich zugängliches Webangebot mit personenbezogenen Daten ist ein Impressum mit ladungsfähiger Anschrift vorgeschrieben. Weder eine separate Seite noch ein Link in der Navigation oder im Footer existieren.  
-**Maßnahme:**
-1. Eine neue Seite `frontend/src/pages/ImprintPage.tsx` anlegen und unter `/imprint` in der Routenkonfiguration (`App.tsx`) eintragen.
-2. In der `NavBar.tsx` oder einem globalen Footer (z. B. in `App.tsx`) einen Link „Impressum“ einfügen.
-
-### 4.2 Fehlende Datenschutzerklärung
-**Schweregrad:** kritisch  
-**Fundstelle:** gesamtes Frontend  
-**Problem:** Es gibt keine Datenschutzerklärung, die über die Verarbeitung der personenbezogenen Daten (E-Mail, Passwort-Hash, hochgeladene Bilder) informiert und insbesondere die Nutzung technisch notwendiger Cookies erklärt.  
-**Maßnahme:**
-1. Neue Seite `frontend/src/pages/PrivacyPage.tsx` anlegen, die alle erforderlichen Informationen enthält (Verantwortlicher, Zwecke, Rechtsgrundlagen, Speicherdauer, Betroffenenrechte, Empfänger/Hoster).
-2. Die Seite unter `/privacy` über `App.tsx` einbinden.
-3. In der `NavBar` oder im Footer einen Link und in der Registrierungs-Checkbox (siehe 1.1) auf diese Seite verweisen.
-
-### 4.3 Fehlender Cookie-Hinweis
-**Schweregrad:** medium (da nur ein technisch notwendiges Session-Cookie gesetzt wird, reicht ein Hinweis in der Datenschutzerklärung)  
-**Fundstelle:** `backend/auth.py` setzt `session_token`  
-**Problem:** Obwohl für rein funktionale Cookies keine Einwilligung erforderlich ist, muss die Nutzung in der Datenschutzerklärung erläutert werden.  
-**Maßnahme:** In der `PrivacyPage.tsx` einen Abschnitt über Cookies aufnehmen, der den Session-Cookie benennt und erklärt, dass er für die Anmeldung erforderlich ist.
+#### 1.3 Übrige DSGVO‑Aspekte (ohne Mängel)
+- **Rechtsgrundlage:** Die Datenschutzerklärung nennt Art. 6 Abs. 1 lit. a) (Einwilligung) und lit. b) (Vertragserfüllung). Der Einwilligung wird durch das verpflichtende `privacy_accepted`-Checkbox im Pydantic‑Modell (`backend/schemas.py`) und das Blockieren der Registrierung ohne Zustimmung im Frontend (`frontend/src/pages/RegisterPage.tsx`) Rechnung getragen.
+- **Datenminimierung & Speicherfristen:** Hochgeladene Bilder werden von EXIF‑Metadaten befreit (`strip_exif`), Dateigröße und -typen strikt validiert. Personenbezogene Daten werden nur für die Dauer der Kontoführung gespeichert (siehe PrivacyPage).
+- **Betroffenenrechte:** Die Datenschutzerklärung informiert über Auskunft, Berichtigung, Löschung (Kontolöschung) und Widerspruch. Kontolöschung ist als Hard‑Deletion implementiert (`backend/auth.py:delete_account`), Konformität mit der Team‑Konvention.
+- **Logs:** Keine Ausgabe von E‑Mail‑Adressen oder Passwörtern im Code – erfüllt.
 
 ---
 
-## 5. Barrierefreiheit (WCAG / BITV / EAA)
+### 2. EU Cyber Resilience Act (CRA)
 
-### 5.1 Fehlende Alternativtexte für Bilder
-**Schweregrad:** medium  
-**Fundstelle:** `frontend/src/pages/WardrobePage.tsx`, `frontend/src/pages/OutfitCreatorPage.tsx` (nicht vollständig einsehbar, aber Verwendung der Klasse `garment-image` sowie `image_url` ohne ersichtliche `alt`-Attribute)  
-**Problem:** Hochgeladene Garderobenbilder werden ohne `alt`-Attribut eingebunden. Bildschirmleseprogramme erhalten keine Beschreibung, was für die Zugänglichkeit (WCAG 1.1.1) erforderlich ist.  
-**Maßnahme:** In allen `<img>`-Tags, die über `garment-image` oder ähnlich gestylt sind, ein `alt`-Attribut mit dem Namen des Kleidungsstücks setzen, z. B. `alt={item.name}` in WardrobePage und OutfitCreatorPage.
+#### 2.1 SBOM (Software Bill of Materials)
+- **Schwere:** MITTEL
+- **Beschreibung:** Die Datei `sbom.json` existiert, enthält aber laut Dateiliste nur 5 Zeilen und ist offensichtlich nicht aussagekräftig. Eine vollständige, maschinenlesbare Liste der Abhängigkeiten (SPDX/CycloneDX) fehlt.
+- **Rechtliche Einordnung:** Für Produkte mit digitalen Elementen verlangt der CRA, dass Schwachstellen in Abhängigkeiten nachvollziehbar sind. Ohne SBOM ist weder ein effektives Patch‑Management noch eine Sicherheitsbewertung möglich.
+- **Abhilfe:**
+  - Eine vollständige SBOM generieren, z. B. mit `pipdeptree --json-tree` oder `pip-audit` für Python und `npm list --json` für das Frontend, und in `sbom.json` ablegen.
+  - Automatisierung der SBOM‑Erstellung in die CI‑Pipeline integrieren.
+
+#### 2.2 Sonstige CRA‑Anforderungen
+- **Update‑Fähigkeit:** Da es sich um eine serverseitige Web‑Anwendung handelt, kann der Betreiber jederzeit Updates einspielen – keine speziellen Mechanismen im Code nötig.
+- **Security by design:** Die implementierten Sicherheitsvorkehrungen (bcrypt, Magic‑Byte‑Prüfung, EXIF‑Stripping, Traversal‑Schutz) sind angemessen.
 
 ---
 
-## Hinweis zur Funktionalität unter den geforderten Maßnahmen
-Alle oben genannten Änderungen sind mit der bestehenden Produktlogik kompatibel. Sie fügen lediglich erforderliche rechtliche Elemente hinzu, ohne bestehende Datenflüsse oder Features zu beeinträchtigen. Insbesondere:
-- Die Datenschutz-Checkbox und die neue Account-Löschung verändern nicht die Abbildung der Kleider- oder Outfit-Verwaltung.
-- Die Pflichttextseiten werden über das existierende Routing eingebunden.
-- Die `alt`-Attribute brechen keine Layout- oder Drag‑and‑Drop-Funktionen.
+### 3. Mandatory Texts & UI
+
+#### 3.1 Impressum mit Platzhalterdaten
+- **Schwere:** MITTEL
+- **Beschreibung:** `frontend/src/pages/ImprintPage.tsx` enthält ein Impressum nach § 5 TMG, jedoch mit fiktiven Angaben (GlamCloset GmbH, Musterstraße 1, HRB 123456, DE123456789). Für ein echtes Marktprodukt ist dies unzureichend.
+- **Rechtliche Einordnung:** Pflichtangaben gemäß § 5 TMG müssen korrekt und aktuell sein. Platzhalter erfüllen die gesetzliche Anforderung nicht.
+- **Abhilfe:** Vor dem Inverkehrbringen alle Platzhalter durch die tatsächlichen Unternehmensdaten des Betreibers ersetzen.
+
+#### 3.2 Datenschutzerklärung
+- Die Seite `/privacy` enthält eine vollständige Datenschutzerklärung (Verantwortlicher, Zwecke, Rechtsgrundlagen, Kategorien, Speicherdauer, Betroffenenrechte, Cookie‑Information). Keine Mängel.
+
+#### 3.3 Cookie‑Banner
+- Es wird nur ein technisch notwendiger Session‑Cookie verwendet. Nach ePrivacy‑Richtlinie ist dafür keine Einwilligung erforderlich, ein Banner ist entbehrlich. Die Information erfolgt in der Datenschutzerklärung – konform.
+
+---
+
+### 4. Accessibility (WCAG / BITV / EAA)
+
+#### 4.1 Keine barrierefreie Gestaltung
+- **Schwere:** NIEDRIG
+- **Beschreibung:** Der Code enthält keine besonderen Maßnahmen zur Barrierefreiheit (ARIA‑Rollen, Tastaturnavigation, semantische HTML‑Struktur). Für ein privates Web‑MVP ohne öffentlichen Träger besteht aktuell keine zwingende gesetzliche Pflicht, jedoch wäre eine frühzeitige Berücksichtigung empfehlenswert.
+- **Rechtliche Einordnung:** Der European Accessibility Act (EAA) könnte ab 2025 für bestimmte Dienste gelten. Derzeit kein Verstoß, aber ein Risiko für die Zukunft.
+- **Abhilfe:** Semantische HTML‑Elemente (z. B. `<main>`, `<nav>`, `<section>`) einsetzen, Fokus‑Management prüfen und bei Bedarf ARIA‑Attribute ergänzen.
+
+---
+
+**Gesamtergebnis:** Das Produkt ist grundsätzlich DSGVO‑konform, weist jedoch zwei sicherheitsrelevante Abweichungen (unsicherer Cookie, DDL‑Zugriff) sowie unzureichende Impressumsdaten und eine unvollständige SBOM auf. Diese Punkte müssen vor der Marktfreigabe behoben werden – daher `VERDICT: CHANGES_REQUESTED`.
