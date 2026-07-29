@@ -39,7 +39,7 @@ def _login_user(client: TestClient, email: str) -> None:
 
 class TestRegisterPrivacyAccepted:
     def test_register_without_privacy_accepted_fails(self):
-        with TestClient(app) as client:
+        with TestClient(app, base_url="https://testserver") as client:
             email = f"test-{uuid.uuid4().hex[:8]}@example.com"
             resp = client.post(
                 "/api/auth/register",
@@ -48,7 +48,7 @@ class TestRegisterPrivacyAccepted:
             assert resp.status_code == 422
 
     def test_register_with_privacy_accepted_false_fails(self):
-        with TestClient(app) as client:
+        with TestClient(app, base_url="https://testserver") as client:
             email = f"test-{uuid.uuid4().hex[:8]}@example.com"
             resp = client.post(
                 "/api/auth/register",
@@ -61,7 +61,7 @@ class TestRegisterPrivacyAccepted:
             assert resp.status_code == 422
 
     def test_register_with_privacy_accepted_true_succeeds(self):
-        with TestClient(app) as client:
+        with TestClient(app, base_url="https://testserver") as client:
             email = f"test-{uuid.uuid4().hex[:8]}@example.com"
             resp = client.post(
                 "/api/auth/register",
@@ -79,14 +79,14 @@ class TestRegisterPrivacyAccepted:
 
 class TestSessionExpiry:
     def test_valid_session_is_accepted(self):
-        with TestClient(app) as client:
+        with TestClient(app, base_url="https://testserver") as client:
             email = f"fresh-{uuid.uuid4().hex[:8]}@example.com"
             _register_user(client, email)
             resp = client.get("/api/auth/me")
             assert resp.status_code == 200
 
     def test_expired_session_returns_401(self):
-        with TestClient(app) as client:
+        with TestClient(app, base_url="https://testserver") as client:
             email = f"expired-{uuid.uuid4().hex[:8]}@example.com"
             _register_user(client, email)
 
@@ -105,7 +105,7 @@ class TestSessionExpiry:
             assert "abgelaufen" in data["detail"]
 
     def test_expired_session_is_deleted_from_db(self):
-        with TestClient(app) as client:
+        with TestClient(app, base_url="https://testserver") as client:
             email = f"cleanup-{uuid.uuid4().hex[:8]}@example.com"
             _register_user(client, email)
 
@@ -131,14 +131,14 @@ class TestSessionExpiry:
 
 class TestDeleteAccount:
     def test_delete_account_returns_204(self):
-        with TestClient(app) as client:
+        with TestClient(app, base_url="https://testserver") as client:
             email = f"delete-{uuid.uuid4().hex[:8]}@example.com"
             _register_user(client, email)
             resp = client.delete("/api/auth/me")
             assert resp.status_code == 204
 
     def test_delete_account_removes_user_from_db(self):
-        with TestClient(app) as client:
+        with TestClient(app, base_url="https://testserver") as client:
             email = f"delete-{uuid.uuid4().hex[:8]}@example.com"
             _register_user(client, email)
             client.delete("/api/auth/me")
@@ -151,7 +151,7 @@ class TestDeleteAccount:
                 db.close()
 
     def test_delete_account_clears_session_cookie(self):
-        with TestClient(app) as client:
+        with TestClient(app, base_url="https://testserver") as client:
             email = f"delete-{uuid.uuid4().hex[:8]}@example.com"
             _register_user(client, email)
             resp = client.delete("/api/auth/me")
@@ -161,7 +161,7 @@ class TestDeleteAccount:
             assert "Max-Age=0" in cookie or "expires=" in cookie.lower()
 
     def test_delete_account_cannot_be_called_after_deletion(self):
-        with TestClient(app) as client:
+        with TestClient(app, base_url="https://testserver") as client:
             email = f"delete-{uuid.uuid4().hex[:8]}@example.com"
             _register_user(client, email)
             resp = client.delete("/api/auth/me")
@@ -171,7 +171,7 @@ class TestDeleteAccount:
             assert resp.status_code == 401
 
     def test_delete_account_removes_images(self):
-        with TestClient(app) as client:
+        with TestClient(app, base_url="https://testserver") as client:
             email = f"delete-{uuid.uuid4().hex[:8]}@example.com"
             _register_user(client, email)
 
@@ -206,7 +206,7 @@ class TestDeleteAccount:
             assert not os.path.exists(test_file_path)
 
     def test_delete_account_requires_authentication(self):
-        with TestClient(app) as client:
+        with TestClient(app, base_url="https://testserver") as client:
             resp = client.delete("/api/auth/me")
             assert resp.status_code == 401
 
@@ -221,7 +221,7 @@ class TestImageIDOR:
         return buf.getvalue()
 
     def test_cannot_access_another_users_image(self):
-        with TestClient(app) as client:
+        with TestClient(app, base_url="https://testserver") as client:
             email1 = f"user1-{uuid.uuid4().hex[:8]}@example.com"
             _register_user(client, email1)
 
@@ -243,7 +243,7 @@ class TestImageIDOR:
             assert resp.status_code == 404
 
     def test_can_access_own_image(self):
-        with TestClient(app) as client:
+        with TestClient(app, base_url="https://testserver") as client:
             email = f"owner-{uuid.uuid4().hex[:8]}@example.com"
             _register_user(client, email)
 

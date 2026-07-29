@@ -38,7 +38,7 @@ def _create_items(client: TestClient, user_id: int) -> list[int]:
 class TestCreateOutfit:
     def test_create_outfit_success(self):
         Base.metadata.create_all(bind=engine)
-        with TestClient(app) as client:
+        with TestClient(app, base_url="https://testserver") as client:
             user = _create_user_and_login(client)
             item_ids = _create_items(client, user["id"])
 
@@ -56,7 +56,7 @@ class TestCreateOutfit:
 
     def test_create_outfit_unauthorized(self):
         Base.metadata.create_all(bind=engine)
-        with TestClient(app) as client:
+        with TestClient(app, base_url="https://testserver") as client:
             resp = client.post(
                 "/api/outfits",
                 json={"name": "Outfit", "item_ids": [1, 2]},
@@ -65,7 +65,7 @@ class TestCreateOutfit:
 
     def test_create_outfit_empty_name(self):
         Base.metadata.create_all(bind=engine)
-        with TestClient(app) as client:
+        with TestClient(app, base_url="https://testserver") as client:
             user = _create_user_and_login(client)
             item_ids = _create_items(client, user["id"])
 
@@ -78,7 +78,7 @@ class TestCreateOutfit:
 
     def test_create_outfit_fewer_than_two_items(self):
         Base.metadata.create_all(bind=engine)
-        with TestClient(app) as client:
+        with TestClient(app, base_url="https://testserver") as client:
             user = _create_user_and_login(client)
             item_ids = _create_items(client, user["id"])
 
@@ -91,7 +91,7 @@ class TestCreateOutfit:
 
     def test_create_outfit_item_not_found(self):
         Base.metadata.create_all(bind=engine)
-        with TestClient(app) as client:
+        with TestClient(app, base_url="https://testserver") as client:
             _create_user_and_login(client)
             resp = client.post(
                 "/api/outfits",
@@ -102,7 +102,7 @@ class TestCreateOutfit:
 
     def test_create_outfit_item_belongs_to_other_user(self):
         Base.metadata.create_all(bind=engine)
-        with TestClient(app) as client:
+        with TestClient(app, base_url="https://testserver") as client:
             user1 = _create_user_and_login(client)
             item_ids = _create_items(client, user1["id"])
 
@@ -120,7 +120,7 @@ class TestCreateOutfit:
 class TestListOutfits:
     def test_list_outfits_empty(self):
         Base.metadata.create_all(bind=engine)
-        with TestClient(app) as client:
+        with TestClient(app, base_url="https://testserver") as client:
             _create_user_and_login(client)
             resp = client.get("/api/outfits")
             assert resp.status_code == 200
@@ -128,7 +128,7 @@ class TestListOutfits:
 
     def test_list_outfits_returns_user_outfits(self):
         Base.metadata.create_all(bind=engine)
-        with TestClient(app) as client:
+        with TestClient(app, base_url="https://testserver") as client:
             user = _create_user_and_login(client)
             item_ids = _create_items(client, user["id"])
 
@@ -150,13 +150,13 @@ class TestListOutfits:
 
     def test_list_outfits_unauthorized(self):
         Base.metadata.create_all(bind=engine)
-        with TestClient(app) as client:
+        with TestClient(app, base_url="https://testserver") as client:
             resp = client.get("/api/outfits")
             assert resp.status_code == 401
 
     def test_list_outfits_isolation(self):
         Base.metadata.create_all(bind=engine)
-        with TestClient(app) as client:
+        with TestClient(app, base_url="https://testserver") as client:
             user1 = _create_user_and_login(client)
             item_ids = _create_items(client, user1["id"])
             client.post(
@@ -175,7 +175,7 @@ class TestListOutfits:
 class TestDeleteOutfit:
     def test_delete_outfit_success(self):
         Base.metadata.create_all(bind=engine)
-        with TestClient(app) as client:
+        with TestClient(app, base_url="https://testserver") as client:
             user = _create_user_and_login(client)
             item_ids = _create_items(client, user["id"])
 
@@ -193,20 +193,20 @@ class TestDeleteOutfit:
 
     def test_delete_outfit_not_found(self):
         Base.metadata.create_all(bind=engine)
-        with TestClient(app) as client:
+        with TestClient(app, base_url="https://testserver") as client:
             _create_user_and_login(client)
             resp = client.delete("/api/outfits/99999")
             assert resp.status_code == 404
 
     def test_delete_outfit_unauthorized(self):
         Base.metadata.create_all(bind=engine)
-        with TestClient(app) as client:
+        with TestClient(app, base_url="https://testserver") as client:
             resp = client.delete("/api/outfits/1")
             assert resp.status_code == 401
 
     def test_delete_outfit_other_user(self):
         Base.metadata.create_all(bind=engine)
-        with TestClient(app) as client:
+        with TestClient(app, base_url="https://testserver") as client:
             user1 = _create_user_and_login(client)
             item_ids = _create_items(client, user1["id"])
 
