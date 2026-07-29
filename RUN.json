@@ -1,0 +1,45 @@
+{
+  "runcontract": 1,
+  "services": [
+    {
+      "name": "api",
+      "dir": "backend",
+      "stack": "python",
+      "kind": "server",
+      "install": [
+        ["${python}", "-m", "pip", "install", "-q", "-r", "requirements.txt"]
+      ],
+      "start": [
+        "${python}", "-m", "uvicorn", "main:app", "--host", "0.0.0.0", "--port", "${PORT}"
+      ],
+      "port": 8000,
+      "port_env": "PORT",
+      "health": {
+        "path": "/api/health",
+        "expect_status": [200]
+      },
+      "env": {}
+    },
+    {
+      "name": "frontend",
+      "dir": "frontend",
+      "stack": "node",
+      "kind": "static",
+      "install": [
+        ["npm", "ci"]
+      ],
+      "build": [
+        ["npm", "run", "build"]
+      ],
+      "start": [
+        ["npm", "run", "dev"]
+      ],
+      "port": 5173,
+      "env": {
+        "VITE_API_URL": {
+          "dev": "http://localhost:8000"
+        }
+      }
+    }
+  ]
+}
