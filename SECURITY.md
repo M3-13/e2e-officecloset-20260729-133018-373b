@@ -1,77 +1,41 @@
-VERDICT: BLOCKED
+VERDICT: CHANGES_REQUESTED
 
-# Sicherheitsbericht – Glamouröser Kleiderschrank-Manager (MVP)
+## Security Report
 
-## 1. Blockierende Sicherheitslücke: Unsichere Session‑Cookie‑Konfiguration
+### 1. DDL-Operationen im Anwendungslauf (Medium)
+**Betroffene Datei:** `backend/database.py` (Zeilen 12–18)
+**Beschreibung:**  
+Die Funktion `init_db` führt bei jedem Start `Base.metadata.create_all` und eine bedingte `ALTER TABLE`-Anweisung aus. Dies verstößt gegen die Akzeptanzkriterien „Datenbank-Verbindung nur mit minimal nötigen Rechten (kein DDL-Zugriff für die Applikation im Produktivbetrieb)“. In SQLite existieren zwar keine granularen Benutzerrechte, aber das Prinzip der geringsten Rechte wird dennoch missachtet – ein laufender Webserver sollte keine Schemaänderungen am Datenspeicher vornehmen. Sollte wider Erwarten doch eine Injektion gelingen (aktuell nicht gegeben), wäre die DDL-Fähigkeit ein Verstärker.
+**Empfehlung:**  
+- Migrationen ausschließlich über ein separates CLI-Kommando oder ein Tool wie Alembic ausführen.  
+- `init_db` im Produktionsmodus nicht aufrufen oder zumindest so kapseln, dass sie nur bei explizitem Schema-Befehl ausgeführt wird.
+**Schweregrad:** Medium
 
-**Schweregrad**  
-🔴 **KRITISCH** (Verstoß gegen die explizit geforderten Security‑ACs; führt zu einem schwerwiegenden Authentifizierungsrisiko)
+### 2. Fehlende Ratenbegrenzung bei Login und Registrierung (Medium)
+**Betroffene Datei:** `backend/auth.py` (Endpunkte `POST /api/auth/login` und `POST /api/auth/register`)
+**Beschreibung:**  
+Es existiert keinerlei Begrenzung der Anfragen, weder pro IP noch pro Nutzer. Ein Angreifer kann folglich Brute‑Force‑Angriffe gegen Passwörter oder massenhafte Registrierungen durchführen und so die Benutzer‑DB überfluten.
+**Empfehlung:**  
+Integration einer Ratenbegrenzungs‑Middleware (z. B. `slowapi`), die fehlgeschlagene Login‑Versuche pro IP oder E‑Mail‑Adresse in einem Zeitfenster limitiert. Für Registrierungen kann eine globale Rate pro IP oder Captcha vorgesehen werden.
+**Schweregrad:** Medium
 
-**Betroffene Stellen**  
-- `backend/auth.py`:
-  - `register()` – Zeile 66–68 (`response.set_cookie(…)`)
-  - `login()` – Zeile 83–85 (`response.set_cookie(…)`)
-  - `logout()` – Zeile 100–102 (`response.delete_cookie(…)`)
-  - `delete_account()` – Zeile 125–127 (`response.delete_cookie(…)`)
+### 3. CORS‑Konfiguration zu permissiv (Low)
+**Betroffene Datei:** `backend/main.py` (Zeilen 12–17)
+**Beschreibung:**  
+In der CORS‑Middleware sind `allow_methods=["*"]` und `allow_headers=["*"]` gesetzt, gleichzeitig ist `allow_credentials=True`. Obwohl die erlaubten Origins derzeit auf `localhost` beschränkt sind, würde eine spätere Erweiterung auf eine Produktionsdomain alle HTTP‑Methoden und beliebige Header zulassen. Dies widerspricht dem Need‑to‑Know‑Prinzip.
+**Empfehlung:**  
+Erlaubte Methoden und Header auf die tatsächlich benötigten Werte einschränken, z. B. `allow_methods=["GET", "POST", "DELETE"]` und `allow_headers=["Content-Type"]`.
+**Schweregrad:** Low
 
-**Problem**  
-Die Session‑Cookies werden mit **`secure=False`** und **`samesite="lax"`** gesetzt.  
-Die Sprint-Vorgabe fordert jedoch ausdrücklich:
-
-> *[Security] Sitzungs-Token (z. B. JWT) ausschließlich per HttpOnly, Secure, SameSite=Strict-Cookie ausliefern, niemals in localStorage.*
-
-Aktuell:
-- `secure=False` erlaubt die Übertragung des Tokens über unverschlüsseltes HTTP. Bei einem Deployment ohne HTTPS (oder einem Man‑in‑the‑Middle) kann das Cookie abgefangen und von einem Angreifer für sämtliche Aktionen des Benutzers verwendet werden.
-- `samesite="lax"` schützt die API **nicht** zuverlässig vor CSRF‑Angriffen (z. B. über einen POST von einer externen Seite). `SameSite=Strict` wäre erforderlich, um alle cross‑origin state‑changing Requests zu sperren.
-
-**Konkreter Fix**
-1. Setze `secure=True` beim Cookie (produktionsreife Umgebungen gehen von HTTPS aus; in lokaler Entwicklung kann dies über einen Proxy simuliert werden).
-2. Ändere `samesite="lax"` in **`samesite="strict"`**.
-3. Vereinheitliche die gesamte Cookie‑Konfiguration (Register, Login, Logout, Account‑Löschung) – am besten über eine zentrale Hilfsfunktion oder eine FastAPI‑Middleware, die für alle geschützten Antworten denselben Cookie‑Policy anwendet.
-
-**Begründung für BLOCKED**  
-Die Abweichung von den verpflichtenden Security‑Acceptance‑Criteria macht das Authentifizierungstoken für einen aktiven Netzwerk‑Angreifer lesbar und erhöht die CSRF‑Angriffsfläche erheblich. Das Produkt darf in diesem Zustand nicht ausgeliefert werden.
-
----
-
-## 2. Weitere Sicherheitsmängel (nicht blockierend, aber dringend empfohlen)
-
-### 2.1 Fehlende CSRF‑Absicherung für state‑changing Operationen
-**Schweregrad**: Hoch  
-**Dateien**: Alle API‑Endpunkte, die via Cookie authentifiziert werden (z. B. `POST /api/wardrobe`, `DELETE /api/outfits/{id}`).  
-**Problem**: Ohne sichtbaren CSRF‑Token können Angreifer mit gesetztem `SameSite=Strict` (nach unserer Behebung) zwar nicht direkt einen POST von einer fremden Seite auslösen, dennoch ist eine serverseitige Bestätigung eines CSRF‑Tokens (z. B. als Header) zusätzlicher Schutz, falls die SameSite‑Policy umgangen wird (z. B. Browser‑Bugs, neuere Angriffstechniken).  
-**Empfehlung**: Integriere einen CSRF‑Token Mechanismus (z. B. Ein‑Mal‑Token, das bei jedem POST/DELETE erwartet wird) – aus dem Frontend generiert und im Backend validiert.
-
-### 2.2 Kein Rate Limiting bei Login/Register
-**Schweregrad**: Mittel  
-**Datei**: `backend/auth.py`  
-**Problem**: Mehrfache fehlgeschlagene Login‑Versuche werden nicht verzögert oder blockiert (Brute‑Force / Credential‑Stuffing).  
-**Empfehlung**: Füge eine einfache IP‑basierte oder benutzerbasierte Rate‑Limit‑Schicht ein (z. B. mit `slowapi` oder einem Middleware‑Wrapper um die Auth‑Routen).
-
-### 2.3 POTENZIELLES TOCTOU‑Risiko beim Ausliefern von Bildern
-**Schweregrad**: Niedrig  
-**Datei**: `backend/wardrobe.py` – `serve_image()`  
-**Problem**: Zwischen der Berechtigungsprüfung und dem Öffnen der Datei könnte (in einem parallelen Thread) ein symbolischer Link ausgetauscht werden, der auf eine nicht‑eigene Datei zeigt.  
-**Empfehlung**: Verwende `pathlib.Path.resolve()` und prüfe den tatsächlichen Pfad vor dem Senden. Zusätzlich könnten die Dateien in einem benutzerspezifischen Unterverzeichnis gespeichert werden, das ausschließlich diesem Benutzer gehört (z. B. `uploads/<user_id>/`).
-
-### 2.4 Keine Content‑Security‑Policy oder andere Sicherheits‑Header
-**Schweregrad**: Niedrig  
-**Frontend**: `vite.config.ts` / `main.py`  
-**Problem**: Es werden keine Sicherheits‑Header (CSP, X‑Content‑Type‑Options, X‑Frame‑Options) gesetzt.  
-**Empfehlung**: Konfiguriere in FastAPI eine Middleware, die mindestens `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY` und eine restriktive CSP ausliefert, die die legitimen Ressourcen (Self, Google Fonts) nicht blockiert.
+### 4. Diskrepanz beim SameSite‑Attribut (Hinweis)
+**Betroffene Datei:** `backend/auth.py` (Zeile 14)
+**Beschreibung:**  
+Das Session‑Cookie wird mit `SameSite=Strict` gesetzt. Die Datenschutz‑AC fordern `SameSite=Lax`, während die Security‑AC `Strict` vorgibt. Diese Inkonsistenz kann zu Fehlverhalten führen (etwa wenn ein externer Link auf die Anwendung verweist) und sollte vereinheitlicht werden.
+**Empfehlung:**  
+Rücksprache mit den Verantwortlichen, ob aus Sicherheitsgründen `Strict` beizubehalten ist oder zugunsten von `Lax` gemäß Datenschutz‑Vorgabe geändert werden soll.
+**Schweregrad:** Hinweis
 
 ---
 
-## 3. Bereits korrekt umgesetzte Sicherheitsmaßnahmen (Anerkennung)
-
-- Passwörter werden mit **bcrypt (Kostenfaktor 12)** gehasht und nie im Klartext gespeichert.
-- Session‑Cookie ist **HttpOnly** – kein Zugriff per JavaScript.
-- Bild‑Uploads werden auf JPEG/PNG/WebP per **Magic‑Byte‑Prüfung** beschränkt, EXIF‑Daten werden entfernt, Dateinamen kryptografisch zufällig.
-- Alle geschützten Endpunkte erfordern Authentifizierung und **isolieren strikt auf den aktuellen Benutzer**.
-- Datenbank‑Abfragen nutzen SQLAlchemy ORM und sind gegen SQL‑Injection geschützt.
-- `privacy_accepted` ist als Pflichtfeld im Pydantic‑Modell verankert und wird im Frontend erzwungen.
-
----
-
-**Gesamturteil**  
-Das Produkt weist **eine kritische Diskrepanz zu den vereinbarten Security‑Akzeptanzkriterien** auf – die unsichere Session‑Cookie‑Konfiguration muss vor der Auslieferung behoben werden. Erst nach Behebung dieser und der optionalen Härtungen kann der Code freigegeben werden.
+**Gesamtbewertung:**  
+Der Code weist keine akut ausnutzbaren kritischen Schwachstellen auf. Die mittelschweren Findings (DDL‑Rechte, fehlende Ratenbegrenzung) sowie die permissive CORS‑Konfiguration rechtfertigen eine Überarbeitung vor dem Produktiveinsatz. Daher **CHANGES_REQUESTED**.
