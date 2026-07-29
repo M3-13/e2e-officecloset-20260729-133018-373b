@@ -4,14 +4,14 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from auth import auth_router
-from database import Base, engine
+from database import init_db
 from outfits import outfit_router
 from wardrobe import wardrobe_router
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    Base.metadata.create_all(bind=engine)
+    init_db()
     yield
 
 
