@@ -21,7 +21,7 @@ def _build_outfit_response(outfit: Outfit) -> dict:
                 "id": ci.id,
                 "name": ci.name,
                 "category": ci.category,
-                "image_url": f"/api/wardrobe/images/{ci.image_filename}",
+                "image_url": f"/api/images/{ci.image_filename}",
                 "created_at": ci.created_at,
             }
             for ci in clothing_items

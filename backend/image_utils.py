@@ -49,6 +49,18 @@ def strip_exif(file_path: str) -> None:
         f.write(buf.read())
 
 
+def detect_image_type(file_path: str) -> str:
+    with open(file_path, "rb") as f:
+        header = f.read(12)
+    if header.startswith(b"\xff\xd8\xff"):
+        return "image/jpeg"
+    if header.startswith(b"\x89PNG\r\n\x1a\n"):
+        return "image/png"
+    if _check_webp_header(header):
+        return "image/webp"
+    return "application/octet-stream"
+
+
 def generate_filename(original_name: str) -> str:
     _, ext = os.path.splitext(original_name)
     if not ext:

@@ -8,6 +8,7 @@ from auth import get_current_user
 from database import get_db
 from image_utils import (
     check_file_size,
+    detect_image_type,
     generate_filename,
     strip_exif,
     validate_image,
@@ -22,22 +23,6 @@ wardrobe_router = APIRouter(tags=["wardrobe"])
 
 def _ensure_upload_dir() -> None:
     os.makedirs(UPLOAD_DIR, exist_ok=True)
-
-
-def _check_webp_header(header: bytes) -> bool:
-    return len(header) >= 12 and header[0:4] == b"RIFF" and header[8:12] == b"WEBP"
-
-
-def _detect_image_type(file_path: str) -> str:
-    with open(file_path, "rb") as f:
-        header = f.read(12)
-    if header.startswith(b"\xff\xd8\xff"):
-        return "image/jpeg"
-    if header.startswith(b"\x89PNG\r\n\x1a\n"):
-        return "image/png"
-    if _check_webp_header(header):
-        return "image/webp"
-    return "application/octet-stream"
 
 
 def _item_to_dict(item: ClothingItem) -> dict:
@@ -138,5 +123,5 @@ def serve_image(
     if not file_path.startswith(allowed_dir + os.sep) or not os.path.isfile(file_path):
         raise HTTPException(status_code=404, detail="Bild nicht gefunden")
 
-    media_type = _detect_image_type(file_path)
+    media_type = detect_image_type(file_path)
     return FileResponse(file_path, media_type=media_type)
