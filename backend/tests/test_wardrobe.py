@@ -6,8 +6,27 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
+from database import SessionLocal
 from main import app
+from models import Session as SessionModel
+from models import User
 from wardrobe import UPLOAD_DIR, VALID_CATEGORIES
+
+
+def _create_user_with_session(email: str) -> str:
+    db = SessionLocal()
+    try:
+        user = User(email=email, password_hash="dummy_hash")
+        db.add(user)
+        db.commit()
+        db.refresh(user)
+        token = str(uuid.uuid4())
+        session = SessionModel(token=token, user_id=user.id)
+        db.add(session)
+        db.commit()
+        return token
+    finally:
+        db.close()
 
 
 @pytest.fixture
@@ -19,13 +38,8 @@ def client():
 @pytest.fixture
 def auth_headers(client):
     email = f"test_{uuid.uuid4().hex[:8]}@wardrobe.com"
-    resp = client.post(
-        "/api/auth/register",
-        json={"email": email, "password": "securepass123"},
-    )
-    assert resp.status_code == 201, resp.text
-    cookie = resp.headers.get("set-cookie", "")
-    return {"Cookie": cookie}
+    token = _create_user_with_session(email)
+    return {"Cookie": f"session_token={token}"}
 
 
 def _make_jpeg_bytes() -> bytes:
@@ -107,14 +121,8 @@ class TestListItems:
             headers=auth_headers,
         )
 
-        other_email = f"other_{uuid.uuid4().hex[:8]}@wardrobe.com"
-        resp2 = client.post(
-            "/api/auth/register",
-            json={"email": other_email, "password": "securepass123"},
-        )
-        assert resp2.status_code == 201
-        other_cookie = resp2.headers.get("set-cookie", "")
-        other_headers = {"Cookie": other_cookie}
+        other_token = _create_user_with_session(f"other_{uuid.uuid4().hex[:8]}@wardrobe.com")
+        other_headers = {"Cookie": f"session_token={other_token}"}
 
         resp = client.get("/api/wardrobe", headers=other_headers)
         assert resp.json() == []
@@ -260,14 +268,8 @@ class TestDeleteItem:
         )
         item_id = create_resp.json()["id"]
 
-        other_email = f"hacker_{uuid.uuid4().hex[:8]}@wardrobe.com"
-        resp2 = client.post(
-            "/api/auth/register",
-            json={"email": other_email, "password": "securepass123"},
-        )
-        assert resp2.status_code == 201
-        other_cookie = resp2.headers.get("set-cookie", "")
-        other_headers = {"Cookie": other_cookie}
+        other_token = _create_user_with_session(f"hacker_{uuid.uuid4().hex[:8]}@wardrobe.com")
+        other_headers = {"Cookie": f"session_token={other_token}"}
 
         resp = client.delete(f"/api/wardrobe/{item_id}", headers=other_headers)
         assert resp.status_code == 403
